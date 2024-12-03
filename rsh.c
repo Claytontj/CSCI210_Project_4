@@ -6,6 +6,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <signal.h>
 
 #define N 13
 
@@ -30,10 +31,6 @@ void terminate(int sig)
 
 void sendmsg(char *user, char *target, char *msg)
 {
-	// TODO:
-	// Send a request to the server to send the message (msg) to the target user (target)
-	// by creating the message structure and writing it to server's FIFO
-
 	int serverFd = open("serverFIFO", O_WRONLY);
 	if (serverFd < 0)
 	{
@@ -42,9 +39,9 @@ void sendmsg(char *user, char *target, char *msg)
 	}
 
 	struct message m;
-	strcpy(m.source, user);
-	strcpy(m.target, target);
-	strcpy(m.msg, msg);
+	strncpy(m.source, user, sizeof(m.source) - 1);
+	strncpy(m.target, target, sizeof(m.target) - 1);
+	strncpy(m.msg, msg, sizeof(m.msg) - 1);
 
 	if (write(serverFd, &m, sizeof(m)) < 0)
 	{
@@ -55,16 +52,9 @@ void sendmsg(char *user, char *target, char *msg)
 
 void *messageListener(void *arg)
 {
-	// TODO:
-	// Read user's own FIFO in an infinite loop for incoming messages
-	// The logic is similar to a server listening to requests
-	// print the incoming message to the standard output in the
-	// following format
-	// Incoming message from [source]: [message]
-	// put an end of line at the end of the message
-
 	char fifoName[50];
 	snprintf(fifoName, sizeof(fifoName), "%s", uName);
+
 	int userFd = open(fifoName, O_RDONLY);
 	if (userFd < 0)
 	{
@@ -82,15 +72,12 @@ void *messageListener(void *arg)
 		}
 	}
 	close(userFd);
-	pthread_exit((void *)0);
-
-	pthread_exit((void *)0);
+	pthread_exit(NULL);
 }
 
 int isAllowed(const char *cmd)
 {
-	int i;
-	for (i = 0; i < N; i++)
+	for (int i = 0; i < N; i++)
 	{
 		if (strcmp(cmd, allowed[i]) == 0)
 		{
@@ -102,21 +89,14 @@ int isAllowed(const char *cmd)
 
 int main(int argc, char **argv)
 {
-	pid_t pid;
-	char **cargv;
-	char *path;
-	char line[256];
-	int status;
-	posix_spawnattr_t attr;
-
 	if (argc != 2)
 	{
 		printf("Usage: ./rsh <username>\n");
 		exit(1);
 	}
-	signal(SIGINT, terminate);
 
-	strcpy(uName, argv[1]);
+	signal(SIGINT, terminate);
+	strncpy(uName, argv[1], sizeof(uName) - 1);
 
 	pthread_t listenerThread;
 	if (pthread_create(&listenerThread, NULL, messageListener, NULL) != 0)
@@ -127,10 +107,9 @@ int main(int argc, char **argv)
 
 	while (1)
 	{
-
-		fprintf(stderr, "rsh>");
-
-		if (fgets(line, 256, stdin) == NULL)
+		fprintf(stderr, "rsh> ");
+		char line[256];
+		if (fgets(line, sizeof(line), stdin) == NULL)
 			continue;
 
 		if (strcmp(line, "\n") == 0)
@@ -140,8 +119,8 @@ int main(int argc, char **argv)
 
 		char cmd[256];
 		char line2[256];
-		strcpy(line2, line);
-		strcpy(cmd, strtok(line, " "));
+		strncpy(line2, line, sizeof(line2) - 1);
+		strncpy(cmd, strtok(line, " "), sizeof(cmd) - 1);
 
 		if (!isAllowed(cmd))
 		{
@@ -151,19 +130,6 @@ int main(int argc, char **argv)
 
 		if (strcmp(cmd, "sendmsg") == 0)
 		{
-			// TODO: Create the target user and
-			// the message string and call the sendmsg function
-
-			// NOTE: The message itself can contain spaces
-			// If the user types: "sendmsg user1 hello there"
-			// target should be "user1"
-			// and the message should be "hello there"
-
-			// if no argument is specified, you should print the following
-			// printf("sendmsg: you have to specify target user\n");
-			// if no message is specified, you should print the followingA
-			// printf("sendmsg: you have to enter a message\n");
-
 			char *target = strtok(NULL, " ");
 			char *msg = strtok(NULL, "\n");
 
@@ -177,9 +143,7 @@ int main(int argc, char **argv)
 				printf("sendmsg: you have to enter a message\n");
 				continue;
 			}
-
 			sendmsg(uName, target, msg);
-
 			continue;
 		}
 
@@ -189,13 +153,16 @@ int main(int argc, char **argv)
 		if (strcmp(cmd, "cd") == 0)
 		{
 			char *targetDir = strtok(NULL, " ");
-			if (strtok(NULL, " ") != NULL)
+			if (targetDir == NULL || strtok(NULL, " ") != NULL)
 			{
-				printf("-rsh: cd: too many arguments\n");
+				printf("-rsh: cd: too many or no arguments\n");
 			}
 			else
 			{
-				chdir(targetDir);
+				if (chdir(targetDir) != 0)
+				{
+					perror("Error changing directory");
+				}
 			}
 			continue;
 		}
@@ -210,47 +177,79 @@ int main(int argc, char **argv)
 			continue;
 		}
 
-		cargv = (char **)malloc(sizeof(char *));
-		cargv[0] = (char *)malloc(strlen(cmd) + 1);
-		path = (char *)malloc(9 + strlen(cmd) + 1);
+		char **cargv = NULL;
+		char *path = NULL;
+
+		path = malloc(strlen(cmd) + 1);
+		if (path == NULL)
+		{
+			perror("Memory allocation failed for path");
+			continue;
+		}
 		strcpy(path, cmd);
+
+		cargv = malloc(sizeof(char *));
+		if (cargv == NULL)
+		{
+			perror("Memory allocation failed for cargv");
+			free(path);
+			continue;
+		}
+		cargv[0] = malloc(strlen(cmd) + 1);
 		strcpy(cargv[0], cmd);
 
-		char *attrToken = strtok(line2, " "); /* skip cargv[0] which is completed already */
+		char *attrToken = strtok(line2, " ");
 		attrToken = strtok(NULL, " ");
 		int n = 1;
+
 		while (attrToken != NULL)
 		{
 			n++;
-			cargv = (char **)realloc(cargv, sizeof(char *) * n);
-			cargv[n - 1] = (char *)malloc(strlen(attrToken) + 1);
+			cargv = realloc(cargv, sizeof(char *) * n);
+			if (cargv == NULL)
+			{
+				perror("Reallocation failed");
+				break;
+			}
+			cargv[n - 1] = malloc(strlen(attrToken) + 1);
 			strcpy(cargv[n - 1], attrToken);
 			attrToken = strtok(NULL, " ");
 		}
-		cargv = (char **)realloc(cargv, sizeof(char *) * (n + 1));
+
+		cargv = realloc(cargv, sizeof(char *) * (n + 1));
+		if (cargv == NULL)
+		{
+			perror("Reallocation failed for cargv");
+			continue;
+		}
 		cargv[n] = NULL;
 
-		// Initialize spawn attributes
+		posix_spawnattr_t attr;
 		posix_spawnattr_init(&attr);
 
-		// Spawn a new process
+		pid_t pid;
 		if (posix_spawnp(&pid, path, NULL, &attr, cargv, environ) != 0)
 		{
-			perror("spawn failed");
-			exit(EXIT_FAILURE);
+			perror("Error spawning process");
 		}
 
-		// Wait for the spawned process to terminate
-		if (waitpid(pid, &status, 0) == -1)
+		if (waitpid(pid, NULL, 0) == -1)
 		{
-			perror("waitpid failed");
-			exit(EXIT_FAILURE);
+			perror("Error waiting for process");
 		}
 
-		// Destroy spawn attributes
 		posix_spawnattr_destroy(&attr);
+
+		for (int i = 0; i < n; i++)
+		{
+			free(cargv[i]);
+		}
+		free(cargv);
+		free(path);
 	}
+
 	pthread_cancel(listenerThread);
 	pthread_join(listenerThread, NULL);
+
 	return 0;
 }
