@@ -6,58 +6,74 @@
 #include <string.h>
 #include <signal.h>
 
-struct message
-{
-	char source[50];
-	char target[50];
-	char msg[200]; // message body
-};
+// Define the message structure
+typedef struct {
+    char sender[50];
+    char recipient[50];
+    char content[200];
+} Message;
 
-void terminate(int sig)
-{
-	printf("Exiting....\n");
-	fflush(stdout);
-	exit(0);
+// Handle termination signals
+void terminate(int sig) {
+    printf("Server shutting down...\n");
+    fflush(stdout);
+    exit(EXIT_SUCCESS);
 }
 
-int main()
-{
-	int server;
-	int target;
-	int dummyfd;
-	struct message req;
+int main() {
+    int serverFd, recipientFd, keepAliveFd;
+    Message incoming;
 
-	// Make the FIFO
+    // Set up signal handling
+    signal(SIGPIPE, SIG_IGN);
+    signal(SIGINT, terminate);
 
-	signal(SIGPIPE, SIG_IGN);
-	signal(SIGINT, terminate);
-	server = open("serverFIFO", O_RDONLY);
-	dummyfd = open("serverFIFO", O_WRONLY);
+    // Open server FIFO for reading
+    serverFd = open("serverFIFO", O_RDONLY);
+    if (serverFd < 0) {
+        perror("Failed to open serverFIFO for reading");
+        exit(EXIT_FAILURE);
+    }
 
-	while (1)
-	{
-		// TODO:
-		// read requests from serverFIFO
+    // Open server FIFO for writing to keep it alive
+    keepAliveFd = open("serverFIFO", O_WRONLY);
+    if (keepAliveFd < 0) {
+        perror("Failed to open serverFIFO for writing");
+        close(serverFd);
+        exit(EXIT_FAILURE);
+    }
 
-		// Use read to wait for incoming message structs from writer end
-		if (read(server, &req, sizeof(struct message)) != sizeof(struct message))
-		{
-			continue;
-		}
+    while (1) {
+        // Wait for incoming message
+        ssize_t bytesRead = read(serverFd, &incoming, sizeof(incoming));
+        if (bytesRead != sizeof(incoming)) {
+            continue;
+        }
 
-		printf("Received a request from %s to send the message %s to %s.\n", req.source, req.msg, req.target);
+        // Log the incoming message
+        printf("Processing message from %s: \"%s\" to %s\n", incoming.sender, incoming.content, incoming.recipient);
 
-		// TODO:
-		// open target FIFO and write the whole message struct to the target FIFO
+        // Open the recipient FIFO
+        recipientFd = open(incoming.recipient, O_WRONLY);
+        if (recipientFd < 0) {
+            perror("Unable to open recipient FIFO");
+            continue;
+        }
 
-		target = open(req.target, O_WRONLY);
-		write(target, &req, sizeof(struct message));
+        // Deliver the message to the recipient
+        ssize_t bytesWritten = write(recipientFd, &incoming, sizeof(incoming));
+        if (bytesWritten != sizeof(incoming)) {
+            perror("Failed to deliver message");
+        } else {
+            printf("Message successfully delivered to %s.\n", incoming.recipient);
+        }
 
-		// close target FIFO after writing the message
+        // Close recipient FIFO
+        close(recipientFd);
+    }
 
-		close(target);
-	}
-	close(server);
-	close(dummyfd);
-	return 0;
+    // Cleanup resources
+    close(serverFd);
+    close(keepAliveFd);
+    return 0;
 }
