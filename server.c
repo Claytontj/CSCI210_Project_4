@@ -6,74 +6,80 @@
 #include <string.h>
 #include <signal.h>
 
-// Define the message structure
-typedef struct {
-    char sender[50];
-    char recipient[50];
-    char content[200];
-} Message;
+// Define the structure for messages
+struct message {
+    char source[50];  // Sender of the message
+    char target[50];  // Recipient of the message
+    char msg[200];    // Message content
+};
 
-// Handle termination signals
+// Signal handler for termination (e.g., when SIGINT is received)
 void terminate(int sig) {
-    printf("Server shutting down...\n");
-    fflush(stdout);
-    exit(EXIT_SUCCESS);
+    printf("Exiting....\n");  // Inform the user about termination
+    fflush(stdout);          // Flush the output buffer
+    exit(0);                 // Exit the program gracefully
 }
 
 int main() {
-    int serverFd, recipientFd, keepAliveFd;
-    Message incoming;
+    int server;     // File descriptor for the server FIFO
+    int target;     // File descriptor for the target user FIFO
+    int dummyfd;    // Dummy file descriptor to keep the server FIFO open for writing
+    struct message req;  // Structure to hold the incoming message request
 
-    // Set up signal handling
+    // Ignore SIGPIPE to prevent termination when writing to a closed FIFO
     signal(SIGPIPE, SIG_IGN);
+
+    // Handle SIGINT (Ctrl+C) to terminate the program gracefully
     signal(SIGINT, terminate);
 
-    // Open server FIFO for reading
-    serverFd = open("serverFIFO", O_RDONLY);
-    if (serverFd < 0) {
+    // Open the server FIFO for reading
+    server = open("serverFIFO", O_RDONLY);
+    if (server < 0) {
         perror("Failed to open serverFIFO for reading");
         exit(EXIT_FAILURE);
     }
 
-    // Open server FIFO for writing to keep it alive
-    keepAliveFd = open("serverFIFO", O_WRONLY);
-    if (keepAliveFd < 0) {
+    // Open the server FIFO for writing to keep it open
+    dummyfd = open("serverFIFO", O_WRONLY);
+    if (dummyfd < 0) {
         perror("Failed to open serverFIFO for writing");
-        close(serverFd);
+        close(server);  // Close the read end if write fails
         exit(EXIT_FAILURE);
     }
 
+    // Infinite loop to process incoming messages
     while (1) {
-        // Wait for incoming message
-        ssize_t bytesRead = read(serverFd, &incoming, sizeof(incoming));
-        if (bytesRead != sizeof(incoming)) {
+        // Read a message from the server FIFO
+        if (read(server, &req, sizeof(struct message)) != sizeof(struct message)) {
+            // If the read operation fails or doesn't read the expected size, skip this iteration
             continue;
         }
 
-        // Log the incoming message
-        printf("Processing message from %s: \"%s\" to %s\n", incoming.sender, incoming.content, incoming.recipient);
+        // Log the received message details
+        printf("Received a request from %s to send the message \"%s\" to %s.\n",
+               req.source, req.msg, req.target);
 
-        // Open the recipient FIFO
-        recipientFd = open(incoming.recipient, O_WRONLY);
-        if (recipientFd < 0) {
-            perror("Unable to open recipient FIFO");
+        // Open the recipient's FIFO for writing
+        target = open(req.target, O_WRONLY);
+        if (target < 0) {
+            // If the target FIFO cannot be opened, log an error and skip this message
+            perror("Failed to open target FIFO");
             continue;
         }
 
-        // Deliver the message to the recipient
-        ssize_t bytesWritten = write(recipientFd, &incoming, sizeof(incoming));
-        if (bytesWritten != sizeof(incoming)) {
-            perror("Failed to deliver message");
-        } else {
-            printf("Message successfully delivered to %s.\n", incoming.recipient);
+        // Write the message to the recipient's FIFO
+        if (write(target, &req, sizeof(struct message)) != sizeof(struct message)) {
+            // If the write operation fails, log an error
+            perror("Failed to write to target FIFO");
         }
 
-        // Close recipient FIFO
-        close(recipientFd);
+        // Close the recipient's FIFO after sending the message
+        close(target);
     }
 
-    // Cleanup resources
-    close(serverFd);
-    close(keepAliveFd);
+    // Close the server FIFOs before exiting (never reached in this infinite loop)
+    close(server);
+    close(dummyfd);
+
     return 0;
 }
