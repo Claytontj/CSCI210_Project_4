@@ -22,6 +22,7 @@ struct message
 	char msg[200];
 };
 
+// Signal handler for termination
 void terminate(int sig)
 {
 	printf("Exiting....\n");
@@ -29,6 +30,7 @@ void terminate(int sig)
 	exit(0);
 }
 
+// Function to send a message to the server
 void sendmsg(char *user, char *target, char *msg)
 {
 	int serverFd = open("serverFIFO", O_WRONLY);
@@ -50,6 +52,7 @@ void sendmsg(char *user, char *target, char *msg)
 	close(serverFd);
 }
 
+// Function to listen for incoming messages in a separate thread
 void *messageListener(void *arg)
 {
 	char fifoName[50];
@@ -75,6 +78,7 @@ void *messageListener(void *arg)
 	pthread_exit(NULL);
 }
 
+// Function to check if a command is allowed
 int isAllowed(const char *cmd)
 {
 	for (int i = 0; i < N; i++)
