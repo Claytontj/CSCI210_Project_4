@@ -22,7 +22,6 @@ struct message
 	char msg[200];
 };
 
-// Signal handler for termination
 void terminate(int sig)
 {
 	printf("Exiting....\n");
@@ -30,58 +29,72 @@ void terminate(int sig)
 	exit(0);
 }
 
-// Function to send a message to the server
 void sendmsg(char *user, char *target, char *msg)
 {
-	int serverFd = open("serverFIFO", O_WRONLY);
-	if (serverFd < 0)
+	// TODO:
+	// Send a request to the server to send the message (msg) to the target user (target)
+	// by creating the message structure and writing it to server's FIFO
+
+	// Open write end of FIFO
+	int serverFIFO;
+	serverFIFO = open("serverFIFO", O_WRONLY);
+
+	// Create message struct
+	struct message deliverable;
+
+	strcpy(deliverable.source, user);
+	strcpy(deliverable.target, target);
+	strcpy(deliverable.msg, msg);
+
+	// Write that message to the file
+
+	if (write(serverFIFO, &deliverable, sizeof(struct message)) != sizeof(struct message))
 	{
-		perror("Error opening serverFIFO");
-		return;
+		printf("Failed to open file");
+		close(serverFIFO);
+		exit(1);
 	}
 
-	struct message m;
-	strncpy(m.source, user, sizeof(m.source) - 1);
-	strncpy(m.target, target, sizeof(m.target) - 1);
-	strncpy(m.msg, msg, sizeof(m.msg) - 1);
-
-	if (write(serverFd, &m, sizeof(m)) < 0)
-	{
-		perror("Error writing to serverFIFO");
-	}
-	close(serverFd);
+	// Close FIFO
+	close(serverFIFO);
 }
 
-// Function to listen for incoming messages in a separate thread
 void *messageListener(void *arg)
 {
-	char fifoName[50];
-	snprintf(fifoName, sizeof(fifoName), "%s", uName);
+	// TODO:
+	// Read user's own FIFO in an infinite loop for incoming messages
+	// The logic is similar to a server listening to requests
+	// print the incoming message to the standard output in the
+	// following format
+	// Incoming message from [source]: [message]
+	// put an end of line at the end of the message
 
-	int userFd = open(fifoName, O_RDONLY);
-	if (userFd < 0)
-	{
-		perror("Error opening user's FIFO");
-		pthread_exit((void *)1);
-	}
+	// Create a storage message struct
+	struct message incoming_message;
 
-	struct message m;
+	// Open the user fifo
+	int clientFD;
+	clientFD = open(arg, O_RDONLY);
+
 	while (1)
 	{
-		ssize_t bytesRead = read(userFd, &m, sizeof(m));
-		if (bytesRead > 0)
+		// Read incoming message struct
+		if (read(clientFD, &incoming_message, sizeof(struct message)) != sizeof(struct message))
 		{
-			printf("Incoming message from [%s]: %s\n", m.source, m.msg);
+			continue;
 		}
+
+		// print Message to the standard output
+
+		printf("Incoming message from %s: %s\n", incoming_message.source, incoming_message.msg);
 	}
-	close(userFd);
-	pthread_exit(NULL);
+	pthread_exit((void *)0);
 }
 
-// Function to check if a command is allowed
 int isAllowed(const char *cmd)
 {
-	for (int i = 0; i < N; i++)
+	int i;
+	for (i = 0; i < N; i++)
 	{
 		if (strcmp(cmd, allowed[i]) == 0)
 		{
@@ -93,27 +106,33 @@ int isAllowed(const char *cmd)
 
 int main(int argc, char **argv)
 {
+	pid_t pid;
+	char **cargv;
+	char *path;
+	char line[256];
+	int status;
+	posix_spawnattr_t attr;
+
 	if (argc != 2)
 	{
 		printf("Usage: ./rsh <username>\n");
 		exit(1);
 	}
-
 	signal(SIGINT, terminate);
-	strncpy(uName, argv[1], sizeof(uName) - 1);
 
+	strcpy(uName, argv[1]);
+
+	// TODO:
+	// create the message listener thread
 	pthread_t listenerThread;
-	if (pthread_create(&listenerThread, NULL, messageListener, NULL) != 0)
-	{
-		perror("Error creating message listener thread");
-		exit(EXIT_FAILURE);
-	}
+	pthread_create(&listenerThread, NULL, messageListener, argv[1]);
 
 	while (1)
 	{
-		fprintf(stderr, "rsh> ");
-		char line[256];
-		if (fgets(line, sizeof(line), stdin) == NULL)
+
+		fprintf(stderr, "rsh>");
+
+		if (fgets(line, 256, stdin) == NULL)
 			continue;
 
 		if (strcmp(line, "\n") == 0)
@@ -123,8 +142,8 @@ int main(int argc, char **argv)
 
 		char cmd[256];
 		char line2[256];
-		strncpy(line2, line, sizeof(line2) - 1);
-		strncpy(cmd, strtok(line, " "), sizeof(cmd) - 1);
+		strcpy(line2, line);
+		strcpy(cmd, strtok(line, " "));
 
 		if (!isAllowed(cmd))
 		{
@@ -134,20 +153,40 @@ int main(int argc, char **argv)
 
 		if (strcmp(cmd, "sendmsg") == 0)
 		{
-			char *target = strtok(NULL, " ");
-			char *msg = strtok(NULL, "\n");
+			// TODO: Create the target user and
+			// the message string and call the sendmsg function
 
+			// Get the target and message
+			char *target = strtok(NULL, " ");
+
+			// Handle edge case where no target is specified
 			if (target == NULL)
 			{
 				printf("sendmsg: you have to specify target user\n");
 				continue;
 			}
+
+			char *msg = strtok(NULL, "");
+
 			if (msg == NULL)
 			{
 				printf("sendmsg: you have to enter a message\n");
 				continue;
 			}
-			sendmsg(uName, target, msg);
+
+			// Call the sendmsg function
+			sendmsg(argv[1], target, msg);
+
+			// NOTE: The message itself can contain spaces
+			// If the user types: "sendmsg user1 hello there"
+			// target should be "user1"
+			// and the message should be "hello there"
+
+			// if no argument is specified, you should print the following
+			// printf("sendmsg: you have to specify target user\n");
+			// if no message is specified, you should print the followingA
+			// printf("sendmsg: you have to enter a message\n");
+
 			continue;
 		}
 
@@ -157,16 +196,13 @@ int main(int argc, char **argv)
 		if (strcmp(cmd, "cd") == 0)
 		{
 			char *targetDir = strtok(NULL, " ");
-			if (targetDir == NULL || strtok(NULL, " ") != NULL)
+			if (strtok(NULL, " ") != NULL)
 			{
-				printf("-rsh: cd: too many or no arguments\n");
+				printf("-rsh: cd: too many arguments\n");
 			}
 			else
 			{
-				if (chdir(targetDir) != 0)
-				{
-					perror("Error changing directory");
-				}
+				chdir(targetDir);
 			}
 			continue;
 		}
@@ -181,79 +217,45 @@ int main(int argc, char **argv)
 			continue;
 		}
 
-		char **cargv = NULL;
-		char *path = NULL;
-
-		path = malloc(strlen(cmd) + 1);
-		if (path == NULL)
-		{
-			perror("Memory allocation failed for path");
-			continue;
-		}
+		cargv = (char **)malloc(sizeof(char *));
+		cargv[0] = (char *)malloc(strlen(cmd) + 1);
+		path = (char *)malloc(9 + strlen(cmd) + 1);
 		strcpy(path, cmd);
-
-		cargv = malloc(sizeof(char *));
-		if (cargv == NULL)
-		{
-			perror("Memory allocation failed for cargv");
-			free(path);
-			continue;
-		}
-		cargv[0] = malloc(strlen(cmd) + 1);
 		strcpy(cargv[0], cmd);
 
-		char *attrToken = strtok(line2, " ");
+		char *attrToken = strtok(line2, " "); /* skip cargv[0] which is completed already */
 		attrToken = strtok(NULL, " ");
 		int n = 1;
-
 		while (attrToken != NULL)
 		{
 			n++;
-			cargv = realloc(cargv, sizeof(char *) * n);
-			if (cargv == NULL)
-			{
-				perror("Reallocation failed");
-				break;
-			}
-			cargv[n - 1] = malloc(strlen(attrToken) + 1);
+			cargv = (char **)realloc(cargv, sizeof(char *) * n);
+			cargv[n - 1] = (char *)malloc(strlen(attrToken) + 1);
 			strcpy(cargv[n - 1], attrToken);
 			attrToken = strtok(NULL, " ");
 		}
-
-		cargv = realloc(cargv, sizeof(char *) * (n + 1));
-		if (cargv == NULL)
-		{
-			perror("Reallocation failed for cargv");
-			continue;
-		}
+		cargv = (char **)realloc(cargv, sizeof(char *) * (n + 1));
 		cargv[n] = NULL;
 
-		posix_spawnattr_t attr;
+		// Initialize spawn attributes
 		posix_spawnattr_init(&attr);
 
-		pid_t pid;
+		// Spawn a new process
 		if (posix_spawnp(&pid, path, NULL, &attr, cargv, environ) != 0)
 		{
-			perror("Error spawning process");
+			perror("spawn failed");
+			exit(EXIT_FAILURE);
 		}
 
-		if (waitpid(pid, NULL, 0) == -1)
+		// Wait for the spawned process to terminate
+		if (waitpid(pid, &status, 0) == -1)
 		{
-			perror("Error waiting for process");
+			perror("waitpid failed");
+			exit(EXIT_FAILURE);
 		}
 
+		// Destroy spawn attributes
 		posix_spawnattr_destroy(&attr);
-
-		for (int i = 0; i < n; i++)
-		{
-			free(cargv[i]);
-		}
-		free(cargv);
-		free(path);
 	}
-
-	pthread_cancel(listenerThread);
-	pthread_join(listenerThread, NULL);
-
 	return 0;
 }
