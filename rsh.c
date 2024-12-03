@@ -8,179 +8,219 @@
 #include <pthread.h>
 #include <signal.h>
 
-#define COMMAND_COUNT 13
+#define N 13
 
 extern char **environ;
-char currentUser[50];
+char uName[20];
 
-const char *validCommands[COMMAND_COUNT] = {
-    "cp", "touch", "mkdir", "ls", "pwd", "cat", 
-    "grep", "chmod", "diff", "cd", "exit", "help", "sendmsg"
+char *allowed[N] = {"cp", "touch", "mkdir", "ls", "pwd", "cat", "grep", 
+"chmod", "diff", "cd", "exit", 
+"help", "sendmsg"};
+
+struct message
+{
+	char source[50];
+	char target[50];
+	char msg[200];
 };
 
-typedef struct {
-    char sender[50];
-    char recipient[50];
-    char message[200];
-} ChatMessage;
-
-void cleanup(int signal) {
-    printf("Shutting down...\n");
-    fflush(stdout);
-    exit(EXIT_SUCCESS);
+void terminate(int sig)
+{
+	printf("Exiting....\n");
+	fflush(stdout);
+	exit(0);
 }
 
-void dispatchMessage(const char *sender, const char *recipient, const char *text) {
-    int serverFd = open("serverFIFO", O_WRONLY);
-    if (serverFd < 0) {
-        perror("Unable to connect to server FIFO");
-        return;
-    }
+void sendmsg(char *user, char *target, char *msg)
+{
+	
+	int serverFIFO;
+	serverFIFO = open("serverFIFO", O_WRONLY);
 
-    ChatMessage msg;
-    strncpy(msg.sender, sender, sizeof(msg.sender) - 1);
-    strncpy(msg.recipient, recipient, sizeof(msg.recipient) - 1);
-    strncpy(msg.message, text, sizeof(msg.message) - 1);
+	struct message deliverable;
 
-    if (write(serverFd, &msg, sizeof(msg)) != sizeof(msg)) {
-        perror("Failed to send message");
-    }
-    close(serverFd);
+	strcpy(deliverable.source, user);
+	strcpy(deliverable.target, target);
+	strcpy(deliverable.msg, msg);
+
+
+	if (write(serverFIFO, &deliverable, sizeof(struct message)) != sizeof(struct message))
+	{
+		printf("Failed to open file");
+		close(serverFIFO);
+		exit(1);
+	}
+
+	close(serverFIFO);
 }
 
-void *listenerThreadFunc(void *arg) {
-    char fifoPath[64];
-    snprintf(fifoPath, sizeof(fifoPath), "%s", currentUser);
+void *messageListener(void *arg)
+{
+	
+	struct message inMessage;
 
-    int userFd = open(fifoPath, O_RDONLY);
-    if (userFd < 0) {
-        perror("Unable to open user FIFO");
-        pthread_exit(NULL);
-    }
+	int clientFD;
+	clientFD = open(arg, O_RDONLY);
 
-    ChatMessage incomingMsg;
-    while (1) {
-        if (read(userFd, &incomingMsg, sizeof(incomingMsg)) > 0) {
-            printf("Message from [%s]: %s\n", incomingMsg.sender, incomingMsg.message);
-        }
-    }
+	while (1)
+	{
+		if (read(clientFD, &inMessage, sizeof(struct message)) != sizeof(struct message))
+		{
+			continue;
+		}
 
-    close(userFd);
-    pthread_exit(NULL);
+
+		printf("Incoming message from %s: %s\n", inMessage.source, inMessage.msg);
+	}
+	pthread_exit((void *)0);
 }
 
-int isCommandValid(const char *command) {
-    for (int i = 0; i < COMMAND_COUNT; i++) {
-        if (strcmp(command, validCommands[i]) == 0) {
-            return 1;
-        }
-    }
-    return 0;
+int isAllowed(const char *cmd)
+{
+	int i;
+	for (i = 0; i < N; i++)
+	{
+		if (strcmp(cmd, allowed[i]) == 0)
+		{
+			return 1;
+		}
+	}
+	return 0;
 }
 
-int main(int argc, char **argv) {
-    if (argc != 2) {
-        printf("Usage: %s <username>\n", argv[0]);
-        exit(EXIT_FAILURE);
-    }
+int main(int argc, char **argv)
+{
+	pid_t pid;
+	char **cargv;
+	char *path;
+	char line[256];
+	int status;
+	posix_spawnattr_t attr;
 
-    signal(SIGINT, cleanup);
-    strncpy(currentUser, argv[1], sizeof(currentUser) - 1);
+	if (argc != 2)
+	{
+		printf("Usage: ./rsh <username>\n");
+		exit(1);
+	}
+	signal(SIGINT, terminate);
 
-    pthread_t listenerThread;
-    if (pthread_create(&listenerThread, NULL, listenerThreadFunc, NULL) != 0) {
-        perror("Failed to start message listener");
-        exit(EXIT_FAILURE);
-    }
+	strcpy(uName, argv[1]);
 
-    char inputLine[256];
-    while (1) {
-        fprintf(stderr, "shell> ");
-        if (fgets(inputLine, sizeof(inputLine), stdin) == NULL)
-            continue;
+	
+	pthread_t listThread;
+	pthread_create(&listThread, NULL, messageListener, argv[1]);
 
-        if (strcmp(inputLine, "\n") == 0)
-            continue;
+	while (1)
+	{
 
-        inputLine[strcspn(inputLine, "\n")] = '\0';
+		fprintf(stderr, "rsh>");
 
-        char command[64], tempLine[256];
-        strncpy(tempLine, inputLine, sizeof(tempLine) - 1);
-        strncpy(command, strtok(inputLine, " "), sizeof(command) - 1);
+		if (fgets(line, 256, stdin) == NULL)
+			continue;
 
-        if (!isCommandValid(command)) {
-            printf("Invalid command\n");
-            continue;
-        }
+		if (strcmp(line, "\n") == 0)
+			continue;
 
-        if (strcmp(command, "sendmsg") == 0) {
-            char *recipient = strtok(NULL, " ");
-            char *content = strtok(NULL, "");
+		line[strlen(line) - 1] = '\0';
 
-            if (!recipient) {
-                printf("Error: No recipient specified\n");
-                continue;
-            }
-            if (!content) {
-                printf("Error: No message content provided\n");
-                continue;
-            }
+		char cmd[256];
+		char line2[256];
+		strcpy(line2, line);
+		strcpy(cmd, strtok(line, " "));
 
-            dispatchMessage(currentUser, recipient, content);
-            continue;
-        }
+		if (!isAllowed(cmd))
+		{
+			printf("NOT ALLOWED!\n");
+			continue;
+		}
 
-        if (strcmp(command, "exit") == 0) {
-            break;
-        }
+		if (strcmp(cmd, "sendmsg") == 0)
+		{
+			
+			char *tar = strtok(NULL, " ");
 
-        if (strcmp(command, "cd") == 0) {
-            char *directory = strtok(NULL, " ");
-            if (strtok(NULL, " ")) {
-                printf("Error: Too many arguments for cd\n");
-            } else if (chdir(directory) != 0) {
-                perror("Failed to change directory");
-            }
-            continue;
-        }
+			if (tar == NULL)
+			{
+				printf("sendmsg: you have to specify target user\n");
+				continue;
+			}
 
-        if (strcmp(command, "help") == 0) {
-            printf("Available commands:\n");
-            for (int i = 0; i < COMMAND_COUNT; i++) {
-                printf("  %s\n", validCommands[i]);
-            }
-            continue;
-        }
+			char *msg = strtok(NULL, "");
 
-        char *args[16];
-        char *arg = strtok(tempLine, " ");
-        int argCount = 0;
-        while (arg && argCount < 15) {
-            args[argCount++] = strdup(arg);
-            arg = strtok(NULL, " ");
-        }
-        args[argCount] = NULL;
+			if (msg == NULL)
+			{
+				printf("sendmsg: you have to enter a message\n");
+				continue;
+			}
 
-        posix_spawnattr_t spawnAttributes;
-        posix_spawnattr_init(&spawnAttributes);
+			sendmsg(argv[1], tar, msg);
 
-        pid_t pid;
-        if (posix_spawnp(&pid, command, NULL, &spawnAttributes, args, environ) != 0) {
-            perror("Failed to execute command");
-        }
+			
+			continue;
+		}
 
-        if (waitpid(pid, NULL, 0) < 0) {
-            perror("Error waiting for process");
-        }
+		if (strcmp(cmd, "exit") == 0)
+			break;
 
-        posix_spawnattr_destroy(&spawnAttributes);
-        for (int i = 0; i < argCount; i++) {
-            free(args[i]);
-        }
-    }
+		if (strcmp(cmd, "cd") == 0)
+		{
+			char *targetDir = strtok(NULL, " ");
+			if (strtok(NULL, " ") != NULL)
+			{
+				printf("-rsh: cd: too many arguments\n");
+			}
+			else
+			{
+				chdir(targetDir);
+			}
+			continue;
+		}
 
-    pthread_cancel(listenerThread);
-    pthread_join(listenerThread, NULL);
+		if (strcmp(cmd, "help") == 0)
+		{
+			printf("The allowed commands are:\n");
+			for (int i = 0; i < N; i++)
+			{
+				printf("%d: %s\n", i + 1, allowed[i]);
+			}
+			continue;
+		}
 
-    return 0;
+		cargv = (char **)malloc(sizeof(char *));
+		cargv[0] = (char *)malloc(strlen(cmd) + 1);
+		path = (char *)malloc(9 + strlen(cmd) + 1);
+		strcpy(path, cmd);
+		strcpy(cargv[0], cmd);
+
+		char *attrToken = strtok(line2, " "); 
+		attrToken = strtok(NULL, " ");
+		int n = 1;
+		while (attrToken != NULL)
+		{
+			n++;
+			cargv = (char **)realloc(cargv, sizeof(char *) * n);
+			cargv[n - 1] = (char *)malloc(strlen(attrToken) + 1);
+			strcpy(cargv[n - 1], attrToken);
+			attrToken = strtok(NULL, " ");
+		}
+		cargv = (char **)realloc(cargv, sizeof(char *) * (n + 1));
+		cargv[n] = NULL;
+
+		posix_spawnattr_init(&attr);
+
+		if (posix_spawnp(&pid, path, NULL, &attr, cargv, environ) != 0)
+		{
+			perror("spawn failed");
+			exit(EXIT_FAILURE);
+		}
+
+		if (waitpid(pid, &status, 0) == -1)
+		{
+			perror("waitpid failed");
+			exit(EXIT_FAILURE);
+		}
+
+		posix_spawnattr_destroy(&attr);
+	}
+	return 0;
 }
