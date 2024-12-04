@@ -63,31 +63,21 @@ void sendmsg(char *user, char *target, char *msg)
 void *messageListener(void *arg)
 {
 
-	struct message receivedMessage;
-	int clientFD = open((char *)arg, O_RDONLY);
+	struct message inMessage;
 
-	if (clientFD == -1)
-	{
-		perror("Failed to open client FIFO");
-		pthread_exit(NULL);
-	}
+	int clientFD;
+	clientFD = open(arg, O_RDONLY);
 
 	while (1)
 	{
-		ssize_t bytesRead = read(clientFD, &receivedMessage, sizeof(struct message));
-		if (bytesRead == sizeof(struct message))
+		if (read(clientFD, &inMessage, sizeof(struct message)) != sizeof(struct message))
 		{
-			printf("Message from %s: %s\n", receivedMessage.source, receivedMessage.msg);
+			continue;
 		}
-		else if (bytesRead == -1)
-		{
-			perror("Error reading from client FIFO");
-		}
-		// If bytesRead is not -1 or the expected size, simply skip iteration silently
-	}
 
-	close(clientFD);
-	pthread_exit(NULL);
+		printf("Incoming message from %s: %s\n", inMessage.source, inMessage.msg);
+	}
+	pthread_exit((void *)0);
 }
 
 int isAllowed(const char *cmd)
@@ -150,25 +140,21 @@ int main(int argc, char **argv)
 
 		if (strcmp(cmd, "sendmsg") == 0)
 		{
-
-			char *tar = strtok(NULL, " ");
-
-			if (tar == NULL)
+			char *targetUser = strtok(NULL, " ");
+			if (!targetUser)
 			{
-				printf("sendmsg: you have to specify target user\n");
+				fprintf(stderr, "Error: Target user must be specified.\n");
 				continue;
 			}
 
-			char *msg = strtok(NULL, "");
-
-			if (msg == NULL)
+			char *message = strtok(NULL, "");
+			if (!message)
 			{
-				printf("sendmsg: you have to enter a message\n");
+				fprintf(stderr, "Error: Message content must be provided.\n");
 				continue;
 			}
 
-			sendmsg(argv[1], tar, msg);
-
+			sendmsg(argv[1], targetUser, message);
 			continue;
 		}
 
