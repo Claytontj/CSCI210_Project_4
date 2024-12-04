@@ -13,9 +13,9 @@
 extern char **environ;
 char uName[20];
 
-char *allowed[N] = {"cp", "touch", "mkdir", "ls", "pwd", "cat", "grep", 
-"chmod", "diff", "cd", "exit", 
-"help", "sendmsg"};
+char *allowed[N] = {"cp", "touch", "mkdir", "ls", "pwd", "cat", "grep",
+					"chmod", "diff", "cd", "exit",
+					"help", "sendmsg"};
 
 struct message
 {
@@ -33,7 +33,7 @@ void terminate(int sig)
 
 void sendmsg(char *user, char *target, char *msg)
 {
-	
+
 	int serverFIFO;
 	serverFIFO = open("serverFIFO", O_WRONLY);
 
@@ -42,7 +42,6 @@ void sendmsg(char *user, char *target, char *msg)
 	strcpy(deliverable.source, user);
 	strcpy(deliverable.target, target);
 	strcpy(deliverable.msg, msg);
-
 
 	if (write(serverFIFO, &deliverable, sizeof(struct message)) != sizeof(struct message))
 	{
@@ -56,7 +55,7 @@ void sendmsg(char *user, char *target, char *msg)
 
 void *messageListener(void *arg)
 {
-	
+
 	struct message inMessage;
 
 	int clientFD;
@@ -68,7 +67,6 @@ void *messageListener(void *arg)
 		{
 			continue;
 		}
-
 
 		printf("Incoming message from %s: %s\n", inMessage.source, inMessage.msg);
 	}
@@ -106,7 +104,6 @@ int main(int argc, char **argv)
 
 	strcpy(uName, argv[1]);
 
-	
 	pthread_t listThread;
 	pthread_create(&listThread, NULL, messageListener, argv[1]);
 
@@ -136,7 +133,7 @@ int main(int argc, char **argv)
 
 		if (strcmp(cmd, "sendmsg") == 0)
 		{
-			
+
 			char *tar = strtok(NULL, " ");
 
 			if (tar == NULL)
@@ -155,7 +152,6 @@ int main(int argc, char **argv)
 
 			sendmsg(argv[1], tar, msg);
 
-			
 			continue;
 		}
 
@@ -192,7 +188,7 @@ int main(int argc, char **argv)
 		strcpy(path, cmd);
 		strcpy(cargv[0], cmd);
 
-		char *attrToken = strtok(line2, " "); 
+		char *attrToken = strtok(line2, " ");
 		attrToken = strtok(NULL, " ");
 		int n = 1;
 		while (attrToken != NULL)

@@ -1,18 +1,17 @@
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
 #include <signal.h>
-
+// Define the structure to hold message details
 struct message
 {
-    char source[50];
-    char target[50];
-    char msg[200];
+    char source[50]; // Sender of the message
+    char target[50]; // Recipient of the message
+    char msg[200];  // Message text
 };
-
+// Graceful exit on receiving termination signals
 void terminate(int sig)
 {
     printf("Exiting....\n");
