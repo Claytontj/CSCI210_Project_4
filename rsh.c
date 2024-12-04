@@ -63,21 +63,31 @@ void sendmsg(char *user, char *target, char *msg)
 void *messageListener(void *arg)
 {
 
-	struct message inMessage;
+	struct message receivedMessage;
+	int clientFD = open((char *)arg, O_RDONLY);
 
-	int clientFD;
-	clientFD = open(arg, O_RDONLY);
+	if (clientFD == -1)
+	{
+		perror("Failed to open client FIFO");
+		pthread_exit(NULL);
+	}
 
 	while (1)
 	{
-		if (read(clientFD, &inMessage, sizeof(struct message)) != sizeof(struct message))
+		ssize_t bytesRead = read(clientFD, &receivedMessage, sizeof(struct message));
+		if (bytesRead == sizeof(struct message))
 		{
-			continue;
+			printf("Message from %s: %s\n", receivedMessage.source, receivedMessage.msg);
 		}
-
-		printf("Incoming message from %s: %s\n", inMessage.source, inMessage.msg);
+		else if (bytesRead == -1)
+		{
+			perror("Error reading from client FIFO");
+		}
+		// If bytesRead is not -1 or the expected size, simply skip iteration silently
 	}
-	pthread_exit((void *)0);
+
+	close(clientFD);
+	pthread_exit(NULL);
 }
 
 int isAllowed(const char *cmd)
