@@ -34,20 +34,27 @@ void terminate(int sig)
 void sendmsg(char *user, char *target, char *msg)
 {
 
-	int serverFIFO;
-	serverFIFO = open("serverFIFO", O_WRONLY);
-
 	struct message deliverable;
+	int serverFIFO = open("serverFIFO", O_WRONLY);
 
-	strcpy(deliverable.source, user);
-	strcpy(deliverable.target, target);
-	strcpy(deliverable.msg, msg);
-
-	if (write(serverFIFO, &deliverable, sizeof(struct message)) != sizeof(struct message))
+	if (serverFIFO == -1)
 	{
-		printf("Failed to open file");
+		perror("Error opening server FIFO");
+		exit(EXIT_FAILURE);
+	}
+
+	// Populate the message struct
+	snprintf(deliverable.source, sizeof(deliverable.source), "%s", user);
+	snprintf(deliverable.target, sizeof(deliverable.target), "%s", target);
+	snprintf(deliverable.msg, sizeof(deliverable.msg), "%s", msg);
+
+	// Write to FIFO
+	ssize_t bytesWritten = write(serverFIFO, &deliverable, sizeof(struct message));
+	if (bytesWritten != sizeof(struct message))
+	{
+		perror("Error writing to server FIFO");
 		close(serverFIFO);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 
 	close(serverFIFO);
